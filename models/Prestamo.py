@@ -1,6 +1,9 @@
 import uuid
 from datetime import datetime, timedelta
 from typing import List, Tuple
+from pydantic import BaseModel
+from typing import Optional
+
 from models.Producto import Producto
 from models.Usuario import Usuario, Socio
 
@@ -54,3 +57,54 @@ class Prestamo:
                 f"Fecha de devolución: {self.fecha_devolucion.strftime('%Y-%m-%d')}\n"
                 f"Productos:\n{productos_str}"
                 f"Devuelto: {self.devuelto}")
+        
+class PrestamoItemCreate(BaseModel):
+    producto_id: str
+    cantidad: int
+
+class PrestamoCreate(BaseModel):
+    usuario_id: str
+    items: List[PrestamoItemCreate]
+    dias: int = 14
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "usuario_id": "id-del-socio-123",
+                "items": [
+                    {"producto_id": "id-del-libro-1984", "cantidad": 1},
+                    {"producto_id": "id-del-dvd-matrix", "cantidad": 1}
+                ],
+                "dias": 14
+            }
+        }
+
+class PrestamoItemRead(BaseModel):
+    producto_id: str
+    titulo: str
+    cantidad: int
+    tipo: str
+
+class PrestamoRead(BaseModel):
+    id: str
+    usuario_id: str
+    nombre_usuario: str
+    fecha_inicio: str
+    fecha_devolucion: str
+    devuelto: bool
+    items: List[PrestamoItemRead]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "prestamo-999",
+                "usuario_id": "socio-123",
+                "nombre_usuario": "Ana Pérez",
+                "fecha_inicio": "2025-12-10",
+                "fecha_devolucion": "2025-12-24",
+                "devuelto": False,
+                "items": [
+                    {"producto_id": "p1", "titulo": "1984", "cantidad": 1, "tipo": "Libro"}
+                ]
+            }
+        }

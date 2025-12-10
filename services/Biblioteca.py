@@ -1,214 +1,201 @@
-from typing import List
+from typing import List, Tuple
 from datetime import datetime, timedelta
+from passlib.context import CryptContext  # pip install passlib[bcrypt]
+
 from models.Producto import Producto, DVD
 from models.Usuario import Usuario, Socio, Bibliotecario
 from models.Prestamo import Prestamo
 
+# Configuración de hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class Biblioteca:
-    """Clase que centraliza la gestión de usuarios, productos y préstamos."""
+    """Clase que centraliza la gestión de usuarios, productos y préstamos para la API REST."""
 
     def __init__(self):
         self.usuarios: List[Usuario] = []
         self.productos: List[Producto] = []
         self.prestamos: List[Prestamo] = []
 
-    # -------------------- USUARIOS --------------------
-    def registrar_usuario(self, usuario: Usuario):
-        """
-        Registra un usuario existente en la biblioteca.
-        """
-        # Comprobar campos vacíos
-        if not usuario.nombre or not usuario.email or usuario.edad is None:
-            print("Todos los campos obligatorios del usuario deben completarse (nombre, email, edad).")
-            return None
+    # ==================== USUARIOS ====================
 
-        # Comprobar duplicados por correo
+    def registrar_usuario(self, tipo: str, nombre: str, email: str, edad: int, 
+                          contrasena: str, numero_empleado: str = None, turno: str = None) -> Usuario:
+        """Registra un nuevo usuario hasheando su contraseña."""
+        
+        # Validaciones básicas
+        if not nombre or not email or edad is None or not contrasena:
+            raise ValueError("Faltan campos obligatorios (nombre, email, edad, contraseña).")
+
+        # Comprobar duplicados
         for u in self.usuarios:
-            if u.email == usuario.email:
-                print(f"Ya existe un usuario con el correo {usuario.email}.")
-                return None
+            if u.email == email:
+                raise ValueError(f"Ya existe un usuario con el correo {email}.")
 
-        # Añadir usuario
+        # Hashear contraseña
+        contrasena_hash = pwd_context.hash(contrasena)
+
+        if tipo.lower() == "socio":
+            usuario = Socio(nombre, email, edad, contrasena_hash)
+        elif tipo.lower() == "bibliotecario":
+            if not numero_empleado or not turno:
+                raise ValueError("Faltan número de empleado o turno para bibliotecario.")
+            usuario = Bibliotecario(nombre, email, edad, contrasena_hash, numero_empleado, turno)
+        else:
+            raise ValueError("Tipo de usuario no válido. Debe ser 'socio' o 'bibliotecario'.")
+
         self.usuarios.append(usuario)
-        #print(f"Usuario {usuario.nombre} registrado correctamente.")
         return usuario
 
+    def autenticar_usuario(self, email: str, contrasena_plana: str) -> Usuario | None:
+        """Verifica credenciales para el login."""
+        for u in self.usuarios:
+            # Verificamos hash
+            if pwd_context.verify(contrasena_plana, u.contrasena):
+                return u
+        return None
+
     def dar_de_baja_usuario(self, usuario_id: str):
-        """Elimina un usuario existente."""
+        """Elimina un usuario por ID."""
         for u in self.usuarios:
             if u.id == usuario_id:
                 self.usuarios.remove(u)
-                return f"Usuario {u.nombre} eliminado correctamente."
-
-        return "Usuario no encontrado."
+                return True # Éxito
+        return False # No encontrado
 
     def renovar_socio(self, socio_id: str):
-        """Renueva la fecha de validez de un socio sumando 2 años."""
+        """Renueva suscripción de socio (lógica de negocio)."""
         for u in self.usuarios:
             if isinstance(u, Socio) and u.id == socio_id:
                 u.renovar_suscripcion()
-                return f"Suscripción de {u.nombre} renovada hasta {u.fecha_renovacion}"
+                return u # Devolvemos el usuario actualizado
+        raise ValueError("Socio no encontrado")
 
-        return "Socio no encontrado."
-
-    def ampliar_fecha_renovacion(self, socio_id: str, dias: int):
-        """Permite extender manualmente la fecha de renovación de un socio."""
+    def buscar_usuario_por_id(self, usuario_id: str):
         for u in self.usuarios:
-            if isinstance(u, Socio) and u.id == socio_id:
-                u.fecha_renovacion += timedelta(days=dias)
-                return f"Fecha de renovación de {u.nombre} ampliada hasta {u.fecha_renovacion}"
+            if u.id == usuario_id:
+                return u
+        return None
 
-        return "Socio no encontrado."
+    def listar_usuarios(self):
+        return self.usuarios
 
-    # -------------------- PRODUCTOS --------------------
+    # ==================== PRODUCTOS ====================
+
     def añadir_producto(self, producto: Producto):
+        """Añade producto o suma stock si ya existe."""
         if not producto.titulo or not producto.autor:
-            return "Error: el producto debe tener título y autor"
+            raise ValueError("El producto debe tener título y autor")
 
         for p in self.productos:
-            if p.titulo.lower() == producto.titulo.lower() and p.autor.lower() == producto.autor.lower():
+            # Comprobamos por título, autor y tipo
+            if (p.titulo.lower() == producto.titulo.lower() and 
+                p.autor.lower() == producto.autor.lower() and 
+                type(p) == type(producto)):
+                
                 p.cantidad += producto.cantidad
-                return f"Stock actualizado para {p.titulo}"
+                return p # Devolvemos el producto actualizado
 
         self.productos.append(producto)
-
-        return f"Producto {producto.titulo} añadido al inventario"
+        return producto
 
     def eliminar_producto(self, producto_id: str):
-        """Elimina un producto del inventario por su ID."""
         for p in self.productos:
             if p.id == producto_id:
                 self.productos.remove(p)
-                return f"Producto {p.titulo} eliminado correctamente."
-
-        return "Producto no encontrado."
+                return True
+        return False
 
     def ajustar_stock(self, producto_id: str, cantidad: int):
-        """Función que elimina cierta cantidad de stock de un producto"""
         for p in self.productos:
             if p.id == producto_id:
-                if cantidad > p.cantidad:
-                    return "No hay suficiente stock para ajustar"
+                if cantidad < 0 and abs(cantidad) > p.cantidad:
+                     raise ValueError("No hay suficiente stock para reducir")
                 p.cantidad += cantidad
-                return f"Stock ajustado, quedan {p.cantidad} ejemplares"
-
-        return "Producto no encontrado"
+                return p
+        raise ValueError("Producto no encontrado")
 
     def listar_productos(self):
-        """Lista los productos agrupados por tipo."""
-        categorias = {}
+        """Devuelve la lista pura de productos."""
+        return self.productos
 
+    def buscar_producto_por_id(self, producto_id: str):
         for p in self.productos:
-            tipo = type(p).__name__
-            categorias.setdefault(tipo, []).append(p)
-
-        for tipo, lista in categorias.items():
-            print(f"\n--- {tipo}s ---")
-            for prod in lista:
-                print(prod)
-                print("---")
-
-    def buscar_producto(self, titulo: str):
-        """Busca productos por título."""
+            if p.id == producto_id:
+                return p
+        return None
+    
+    def buscar_productos_por_titulo(self, titulo: str):
         encontrados = []
         for p in self.productos:
             if titulo.lower() in p.titulo.lower():
                 encontrados.append(p)
-
-        if not encontrados:
-            print("No se encontraron productos con ese título.")
-
-        for prod in encontrados:
-            print(prod)
-            print("---")
-
         return encontrados
 
-    # -------------------- PRÉSTAMOS --------------------
-    def registrar_prestamo(self, usuario: Usuario, productos: List[tuple[Producto, int]], dias: int = 14):
-        """Crea un préstamo y actualiza el stock de los productos prestados."""
+    # ==================== PRÉSTAMOS ====================
+
+    def registrar_prestamo(self, usuario_id: str, items: List[Tuple[Producto, int]], dias: int = 14):
+        """Crea préstamo validando reglas de negocio."""
+        usuario = self.buscar_usuario_por_id(usuario_id)
+        if not usuario:
+            raise ValueError("Usuario no encontrado.")
+
+        if isinstance(usuario, Socio) and usuario.fecha_renovacion < datetime.now():
+            raise ValueError(f"La suscripción de {usuario.nombre} ha expirado.")
 
         productos_validos = []
 
-        if usuario not in self.usuarios:
-            print(f"El usuario {usuario.nombre} no está registrado en la biblioteca. No se puede crear el préstamo.")
-            return None
-
-        if isinstance(usuario, Socio) and usuario.fecha_renovacion < datetime.now():
-            print(f"La suscripción de {usuario.nombre} ha expirado. No puede realizar préstamos.")
-            return None
-
-        # Verificar disponibilidad
-        for prod, cant in productos:
-            if cant <= 0:
-                print(f"La cantidad para {prod.titulo} debe ser mayor que 0. Se omitirá este producto.")
-                continue
-
+        for prod, cant in items:
+            if cant <= 0: continue
+            
+            # Validación Stock
             if not prod.esta_disponible(cant):
-                print(f"No hay suficiente stock de {prod.titulo}. Se omitirá este producto.")
-                continue
+                raise ValueError(f"Sin stock para '{prod.titulo}'.")
 
-            # Validación de edad solo para DVDs
+            # Validación Edad (DVD)
             if isinstance(prod, DVD) and isinstance(usuario, Socio):
-                edad_min = int(prod.clasificacion.lstrip("+"))
-                if usuario.edad < edad_min:
-                    print(f"{usuario.nombre} no tiene la edad mínima para alquilar {prod.titulo}. Se omitirá este producto.")
-                    continue  # Saltar este producto
+                try:
+                    edad_min = int(prod.clasificacion.lstrip("+"))
+                    if usuario.edad < edad_min:
+                        raise ValueError(f"Edad insuficiente para '{prod.titulo}' (+{edad_min}).")
+                except ValueError:
+                    pass
 
             productos_validos.append((prod, cant))
 
         if not productos_validos:
-            print(f"No se pudo crear el préstamo para {usuario.nombre}: ningún producto disponible o válido.")
-            return None
+            raise ValueError("No hay productos válidos para el préstamo.")
 
-        # Crear el préstamo
         prestamo = Prestamo(usuario, productos_validos, dias)
         self.prestamos.append(prestamo)
 
-        # Actualizar stock
-        for prod, cant in productos:
+        # Restar stock
+        for prod, cant in productos_validos:
             prod.actualizar_stock(prod.cantidad - cant)
 
         return prestamo
 
     def marcar_devuelto(self, prestamo_id: str):
-        """Marca un préstamo como devuelto y recupera el stock."""
         for prestamo in self.prestamos:
             if prestamo.id == prestamo_id:
-                mensaje = prestamo.registrar_devolucion()
-                return mensaje
-        return "Préstamo no encontrado."
+                try:
+                    mensaje = prestamo.registrar_devolucion() # Esto suma el stock
+                    return mensaje
+                except Exception as e:
+                    return str(e)
+        raise ValueError("Préstamo no encontrado")
 
     def ampliar_prestamo_socio(self, prestamo_id: str, dias: int):
-        """Amplía la fecha de devolución de un préstamo."""
         for prestamo in self.prestamos:
             if prestamo.id == prestamo_id:
                 prestamo.ampliar_prestamo(dias)
-                return f"Préstamo de {prestamo.socio.nombre} ampliado hasta {prestamo.fecha_devolucion}"
-        return "Préstamo no encontrado."
+                return prestamo
+        raise ValueError("Préstamo no encontrado")
 
-    def listar_prestamos_por_usuario(self, usuario_id):
-        """Lista todos los préstamos de un usuario, ordenados por fecha."""
-        prestamos_usuario = []
-
-        usuario_registrado = next((u for u in self.usuarios if u.id == usuario_id), None)
-
-        if not usuario_registrado:
-            print("El usuario no está registrado en la biblioteca.")
-            return
-
-        for prestamo in self.prestamos:
-            if prestamo.socio.id == usuario_id:
-                prestamos_usuario.append(prestamo)
-
-        if not prestamos_usuario:
-            print("El usuario no tiene préstamos.")
-            return
-
-        # Ordenamos por fecha de inicio
-        prestamos_usuario.sort(key=lambda p: p.fecha_inicio)
-
-        for p in prestamos_usuario:
-            print(p)
-            print("---")
+    def listar_prestamos_por_usuario(self, usuario_id: str):
+        """Devuelve lista de préstamos de un usuario."""
+        resultado = []
+        for p in self.prestamos:
+            if p.socio.id == usuario_id:
+                resultado.append(p)
+        return resultado

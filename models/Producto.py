@@ -1,4 +1,6 @@
 import uuid
+from typing import Optional
+from pydantic import BaseModel
 
 class Producto:
     """Clase base para todos los productos de la biblioteca."""
@@ -74,3 +76,68 @@ class Ebook(Producto):
 
     def __str__(self) -> str:
         return (f"{super().__str__()}\nFormato: {self.formato}\nTamaño: {self.tamaño_mb} MB")
+
+# Pydantic modelos
+
+class ProductoCreate(BaseModel):
+    tipo: str # "libro", "dvd", "cd", "ebook"
+    titulo: str
+    autor: str
+    cantidad: int
+    
+    # Campos opcionales según el tipo
+    num_paginas: Optional[int] = None
+    genero: Optional[str] = None
+    isbn: Optional[str] = None
+    
+    duracion_min: Optional[int] = None # Para DVD
+    clasificacion: Optional[str] = None # Para DVD
+    
+    duracion_total: Optional[int] = None # Para CD
+    codigo_upc: Optional[str] = None # Para CD
+    
+    formato: Optional[str] = None # Para Ebook
+    tamaño_mb: Optional[float] = None # Para Ebook
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "tipo": "libro",
+                "titulo": "1984",
+                "autor": "George Orwell",
+                "cantidad": 5,
+                "num_paginas": 328,
+                "genero": "Distopía",
+                "isbn": "9780451524935"
+            }
+        }
+
+class ProductoRead(BaseModel):
+    id: str
+    tipo: str
+    titulo: str
+    autor: str
+    cantidad: int
+    
+    # Devolvemos también los detalles opcionales para que se vean en el JSON
+    num_paginas: Optional[int] = None
+    genero: Optional[str] = None
+    isbn: Optional[str] = None
+    duracion_min: Optional[int] = None
+    clasificacion: Optional[str] = None
+    duracion_total: Optional[int] = None
+    codigo_upc: Optional[str] = None
+    formato: Optional[str] = None
+    tamaño_mb: Optional[float] = None
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "prod-123",
+                "tipo": "libro",
+                "titulo": "1984",
+                "autor": "George Orwell",
+                "cantidad": 5,
+                "genero": "Distopía"
+            }
+        }
